@@ -19,8 +19,11 @@ def get_full_envname(name):
         'FetchPush': 'FetchPush-v1',
         'FetchSlide': 'FetchSlide-v1',
         'FetchPick': 'FetchPickAndPlace-v1',
-        'HandReach':'HandReach-v0'
+        'HandReach':'HandReach-v0',
+        'HandManipulate': 'HandManipulateBlockRotateXYZ-v0',
+        'SawyerPush': 'SawyerPushAndReachEnvEasy-v0',
     }
+
     if name in dic.keys():
         return dic[name]
     else:
