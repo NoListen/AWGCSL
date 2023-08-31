@@ -1,0 +1,6 @@
+FetchSlide-v1
+FetchPickAndPlace-v1
+HandReach-v0
+HandManipulateBlockRotateXYZ-v0
+SawyerReachXYZEnv-v1
+SawyerPushAndReachEnvEasy-v0
