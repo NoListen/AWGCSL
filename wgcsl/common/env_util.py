@@ -130,7 +130,7 @@ def make_env(env_id, env_type, mpi_rank=0, subrank=0, seed=None, reward_scale=1.
 
 
 def get_env_type(args, _game_envs):
-    env_id = get_full_envname(args.env)
+    env_id = args.env
     if args.env_type is not None:
         return args.env_type, env_id
 
