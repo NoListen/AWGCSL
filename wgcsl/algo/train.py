@@ -22,7 +22,7 @@ def mpi_average(value):
 
 def train(*, policy, rollout_worker, evaluator,
           n_epochs, n_test_rollouts, n_cycles, n_batches, policy_save_interval,
-          save_path, random_init, play_no_training, offline_train, **kwargs):
+          save_path, random_init, play_no_training, offline_train, n_eps_per_cycle, **kwargs):
     rank = MPI.COMM_WORLD.Get_rank()
 
     if save_path and not play_no_training:
@@ -41,14 +41,21 @@ def train(*, policy, rollout_worker, evaluator,
     best_success_rate = -1
     logger.info('Start training...')
     # num_timesteps = n_epochs * n_cycles * rollout_length * number of rollout workers
+    
+    n_rounds = n_eps_per_cycle//rollout_worker.rollout_batch_size
+    remain = n_eps_per_cycle%rollout_worker.rollout_batch_size
+
     for epoch in range(n_epochs):
         time_start = time.time()
         rollout_worker.clear_history()
+        if remain != 0:
+            print("WARNING: the actual episode for each batch is", n_rounds * rollout_worker.rollout_batch_size)
         for i in range(n_cycles):
             policy.dynamic_batch = False
             if not offline_train:
-                episode = rollout_worker.generate_rollouts()
-                policy.store_episode(episode)
+                for _ in range(n_rounds):
+                    episode = rollout_worker.generate_rollouts()
+                    policy.store_episode(episode)
             for _ in range(n_batches):   
                 policy.train()
             policy.update_target_net()
@@ -193,5 +200,5 @@ def learn(*, env, num_epoch,
         evaluator=evaluator, n_epochs=num_epoch, n_test_rollouts=params['n_test_rollouts'],
         n_cycles=params['n_cycles'], n_batches=params['n_batches'],
         policy_save_interval=policy_save_interval, demo_file=demo_file, random_init=random_init,
-        play_no_training=play_no_training, offline_train=offline_train)
+        play_no_training=play_no_training, offline_train=offline_train, n_eps_per_cycle=12)
 

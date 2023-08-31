@@ -10,68 +10,39 @@ from wgcsl.envs.multi_world_wrapper import PointGoalWrapper, SawyerGoalWrapper, 
 
 # offline parameters
 DEFAULT_ENV_PARAMS = {
-    'Point2DLargeEnv-v1':{
-         'n_cycles':5,
-         'n_batches': 1,
-         'baw_delta': 0.15,
-    },
-    'Point2D-FourRoom-v1':{
-        'n_cycles':5,
-        'n_batches': 1,
-        'baw_delta': 0.15,
-    },
     'SawyerReachXYZEnv-v1':{
-        'n_cycles':5,
-        'n_batches': 5,   
+        'n_cycles':10,
         'baw_delta': 0.15,
-        'num_epoch':100, 
     },
-    'FetchReach-v1': {
-        'n_cycles': 5,  
-        'n_batches': 5, 
+    'SawyerPushAndReachEnvEasy-v0':{
+        'n_cycles':10,
+        'n_batches': 40,   
         'baw_delta': 0.15,
-        'num_epoch':100, 
     },
-    'Reacher-v2': {
-        'n_cycles': 10,  
-        'n_batches': 10,
-        'baw_delta': 0.15,
-        'num_epoch':200, 
-    },
-    'SawyerDoor-v0':{
-        'n_cycles': 10,  
-        'n_batches': 10, 
-        'baw_delta': 0.15,
-        'num_epoch':200, 
-        },
-    'FetchPush-v1':{
-        'batch_size': 512,
-        'n_cycles': 20,  
-        'n_batches': 20, 
-        'baw_delta': 0.01,
-        'num_epoch':100, 
-        },
     'FetchSlide-v1':{
-        'batch_size': 512, 
-        'n_cycles': 20,  
-        'n_batches': 20, 
+        'batch_size': 1024, 
+        'n_cycles': 50,  
+        'n_batches': 40, 
         'baw_delta': 0.01,
-        'num_epoch':100, 
         },
     'FetchPickAndPlace-v1':{
-        'batch_size': 512,
-        'n_cycles': 20,
-        'n_batches': 20,
+        'batch_size': 1024,
+        'n_cycles': 50,
+        'n_batches': 40,
         'baw_delta': 0.01,
-        'num_epoch':100,
         },
     'HandReach-v0':{
-        'batch_size': 512,
-        'n_cycles': 20,  
-        'n_batches': 20, 
+        'batch_size': 1024,
+        'n_cycles': 50,  
+        'n_batches': 40, 
         'baw_delta': 0.01,
-        'num_epoch':100, 
-        }
+        },
+    'HandManipulateBlockRotateXYZ-v0':{
+        'batch_size': 1024,
+        'n_cycles': 50,
+        'n_batches': 40,
+        'baw_delta': 0.01,
+        },
 }
 
 
@@ -94,7 +65,7 @@ DEFAULT_PARAMS = {
     'n_cycles': 10,  # per epoch
     'rollout_batch_size': 1,  # per mpi thread
     'n_batches': 4,  # training batches per cycle
-    'batch_size': 128,  # per mpi thread, measured in transitions and reduced to even multiple of chunk_length.
+    'batch_size': 1024,  # per mpi thread, measured in transitions and reduced to even multiple of chunk_length.
     'n_test_rollouts': 100,  # number of test rollouts per epoch, each consists of rollout_batch_size rollouts
     'test_with_polyak': False,  # run test episodes with the target network
     # exploration, not used in the offline setting

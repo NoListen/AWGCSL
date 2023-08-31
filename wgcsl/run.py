@@ -13,6 +13,11 @@ from wgcsl.common.parse_args import common_arg_parser, get_learn_function_defaul
 from wgcsl.algo.train import learn
 from wgcsl.util import init_logger
 
+try:
+    import multiworld
+    multiworld.register_all_envs()
+except ImportError:
+    multiworld = None
 
 _game_envs = get_game_envs()
 
