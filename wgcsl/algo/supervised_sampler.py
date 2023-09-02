@@ -60,7 +60,8 @@ def make_sample_transitions(replay_strategy, replay_k, reward_fun, no_relabel=Fa
         reward_params = {'ag_2':ag_2, 'g':g}
         reward_params['info'] = info
         # make rewards -1/0 --->0/1
-        return reward_fun(**reward_params) + 1  
+        return reward_fun(**reward_params)
+        # return reward_fun(**reward_params) + 1  
 
     def _get_future_ags(episode_batch, episode_idxs, t_samples, batch_size, T, future_p=future_p, return_t=False):
         her_indexes = (np.random.uniform(size=batch_size) < future_p)

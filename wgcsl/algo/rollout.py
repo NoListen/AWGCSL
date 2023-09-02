@@ -138,7 +138,7 @@ class RolloutWorker:
         assert successful.shape == (self.rollout_batch_size,)
         success_rate = np.mean(successful)
         self.success_history.append(success_rate)
-        dis_return, undis_return = discounted_return(rewards, self.gamma)
+        dis_return, undis_return = discounted_return(rewards, self.gamma, reward_offset=False)
         self.return_history.append(undis_return)
         self.dis_return_history.append(dis_return)
         self.distances.append(np.linalg.norm(achieved_goals[-1] - goals[-1]))
