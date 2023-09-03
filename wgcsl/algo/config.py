@@ -141,6 +141,7 @@ def prepare_params(kwargs):
             env.env._max_episode_steps = 50
         elif env_name.startswith('Sawyer'): 
             env = SawyerGoalWrapper(env)
+            env.env._max_episode_steps = 100
         elif env_name.startswith('Reacher'):
             env = ReacherGoalWrapper(env)
 
@@ -166,10 +167,13 @@ def prepare_params(kwargs):
 
     kwargs['make_env'] = make_env
     tmp_env = cached_make_env(kwargs['make_env'])
+    max_episode_steps = default_max_episode_steps
     if hasattr(tmp_env, '_max_episode_steps'):
-        kwargs['T'] = tmp_env._max_episode_steps
-    else:
-        kwargs['T'] = default_max_episode_steps
+        max_episode_steps = tmp_env._max_episode_steps
+    elif hasattr(tmp_env, 'env') and hasattr(tmp_env.env, '_max_episode_steps'):
+        max_episode_steps = tmp_env.env._max_episode_steps
+
+    kwargs['T'] = max_episode_steps
 
     kwargs['max_u'] = np.array(kwargs['max_u']) if isinstance(kwargs['max_u'], list) else kwargs['max_u']
     kwargs['gamma'] = 1. - 1. / kwargs['T']
