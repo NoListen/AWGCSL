@@ -4,6 +4,7 @@ import numpy as np
 
 from wgcsl.algo.util import convert_episode_to_batch_major, store_args, discounted_return
 
+GAMMA_ARRAY=None
 
 class RolloutWorker:
 
@@ -144,9 +145,32 @@ class RolloutWorker:
         self.distances.append(np.linalg.norm(achieved_goals[-1] - goals[-1]))
 
         if self.compute_Q:
+            o[...] = o_new
+            ag[...] = ag_new
+            _, final_Q = self.policy.get_actions(
+                o, ag, self.g,
+                compute_Q=self.compute_Q,
+                noise_eps=self.noise_eps if not self.exploit else 0.,
+                random_eps=self.random_eps if not self.exploit else 0.,
+                use_target_net=self.use_target_net)
+            Qs.append(final_Q)
             self.Q_history.append(np.mean(Qs))
         self.n_episodes += self.rollout_batch_size
         # change shape to (rollout, steps, dim)
+
+        if self.exploit:
+            QA = np.concatenate(Qs, axis=1)
+            SA = np.array(successful).T
+            RA = np.array(rewards).T
+            global GAMMA_ARRAY
+            if not isinstance(GAMMA_ARRAY, np.ndarray):
+                episode_length = RA.shape[1]
+                GAMMA_ARRAY = np.power(self.gamma, np.arange(episode_length))
+            TR = np.sum(RA*GAMMA_ARRAY, axis=1) + self.gamma * GAMMA_ARRAY[-1] * RA[:, -1] / (1 - self.gamma)
+            dicounted_final_Q = self.gamma * GAMMA_ARRAY[-1] * QA[:, -1]
+            return convert_episode_to_batch_major(episode), QA[:, 0] - TR, QA[:, -1], \
+                QA[:, 0] - TR - dicounted_final_Q, SA
+
         return convert_episode_to_batch_major(episode)  
 
     def clear_history(self):

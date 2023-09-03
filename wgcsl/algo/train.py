@@ -19,6 +19,51 @@ def mpi_average(value):
         value = [0.]
     return mpi_moments(np.array(value))[0]
 
+def evaluate(evaluator, logger, n_test_rollouts):
+    evaluator.clear_history()
+    evaluator.render = True
+    bias_stat = {}
+    actual_bias_list = []
+    success_list = []
+    shifting_bias_list = []
+    hovering_bias_list = []
+    for _ in range(n_test_rollouts):
+        _, actual_bias, shifting_bias, hovering_bias, success = evaluator.generate_rollouts()
+        actual_bias_list.append(actual_bias)
+        shifting_bias_list.append(shifting_bias)
+        hovering_bias_list.append(hovering_bias)
+        success_list.append(success)
+    shifting_bias_array = np.array(shifting_bias_list)
+    hovering_bias_array = np.array(hovering_bias_list)
+    actual_bias_array = np.array(actual_bias_list)
+    success_array = np.array(success_list)
+    bias_stat["average_abs_bias"] = np.mean(np.abs(actual_bias_array))
+    bias_stat["average_bias"] = np.mean(actual_bias_array)
+    if np.sum(success_array) != 0:
+        bias_stat["average_abs_success_bias"] = np.sum(np.abs(actual_bias_array) * success_array)/np.sum(success_array)
+        bias_stat["average_success_bias"] = np.sum(actual_bias_array * success_array)/np.sum(success_array)
+        bias_stat["average_abs_shifting_bias"] = np.sum(np.abs(shifting_bias_array) * success_array)/np.sum(success_array)
+        bias_stat["average_shifting_bias"] = np.sum(shifting_bias_array * success_array)/np.sum(success_array)
+        bias_stat["average_abs_hovering_bias"] = np.sum(np.abs(hovering_bias_array) * success_array)/np.sum(success_array)
+        bias_stat["average_hovering_bias"] =  np.sum(hovering_bias_array * success_array)/np.sum(success_array)
+    else:
+        bias_stat["average_abs_success_bias"] = -1
+        bias_stat["average_success_bias"] = -1
+        bias_stat["average_shifting_bias"] = -1
+        bias_stat["average_abs_shifting_bias"] = -1
+        bias_stat["average_abs_hovering_bias"] = -1
+        bias_stat["average_hovering_bias"] = -1
+
+
+    if np.min(success_array) == 0:
+        bias_stat["average_abs_failure_bias"] = np.sum(np.abs(actual_bias_array) * (1 - success_array))/np.sum(1 - success_array)
+        bias_stat["average_failure_bias"] = np.sum(actual_bias_array * (1 - success_array))/np.sum(1 - success_array)
+    else:
+        bias_stat["average_abs_failure_bias"] = -1
+        bias_stat["average_failure_bias"] = -1
+    for key, val in bias_stat.items():
+            logger.record_tabular(key, mpi_average(val))
+
 
 def train(*, policy, rollout_worker, evaluator,
           n_epochs, n_test_rollouts, n_cycles, n_batches, policy_save_interval,
@@ -61,10 +106,7 @@ def train(*, policy, rollout_worker, evaluator,
             policy.update_target_net()
 
         # test
-        evaluator.clear_history()
-        evaluator.render = True
-        for _ in range(n_test_rollouts):
-            evaluator.generate_rollouts()
+        evaluate(evaluator, logger, n_test_rollouts)
 
         # record logs
         time_end = time.time()
