@@ -19,51 +19,74 @@ def mpi_average(value):
         value = [0.]
     return mpi_moments(np.array(value))[0]
 
+def log_successful_trajectory_bias(bias_stat, success_bias_dict, success_array):
+    if np.sum(success_array) != 0:
+        for k, v in success_bias_dict.items():
+            bias_stat["bias/success_" + k] = np.sum(v * success_array) / np.sum(success_array)
+            bias_stat["bias/success_abs_" + k] = np.sum(np.abs(v) * success_array) / np.sum(success_array)
+    else:
+        for k, v in success_bias_dict.items():
+            bias_stat["bias/success_" + k] = -1
+            bias_stat["bias/success_abs_" + k] = -1
+
+    return bias_stat
+
+def log_failed_trajecotry_bias(bias_stat, failure_bias_dict, success_array):
+    if np.min(success_array) == 0:
+        for k, v in failure_bias_dict.items():
+            bias_stat["bias/failure_" + k] = np.sum(v * (1 - success_array))/np.sum(1 - success_array)
+            bias_stat["bias/failure_abs_" + k] = np.sum(np.abs(v) * (1 - success_array))/np.sum(1 - success_array)
+    else:
+        for k, v in failure_bias_dict.items():
+            bias_stat["bias/failure_" + k] = -1
+            bias_stat["bias/failure_abs_" + k] = -1
+    return bias_stat
+    
+
 def evaluate(evaluator, logger, n_test_rollouts):
     evaluator.clear_history()
     evaluator.render = True
     bias_stat = {}
-    actual_bias_list = []
+    istb_bias_list = []
     success_list = []
     shifting_bias_list = []
-    hovering_bias_list = []
+    initial_shooting_bias_list = []
+    average_shooting_bias_list = []
+    average_iqr_list = []
+    per_step_iqr_array_list = []
+
     for _ in range(n_test_rollouts):
-        _, actual_bias, shifting_bias, hovering_bias, success = evaluator.generate_rollouts()
-        actual_bias_list.append(actual_bias)
+        _, istb_bias, shifting_bias, initial_shooting_bias, average_shooting_bias, \
+            average_iqr, per_step_iqr_array, success = evaluator.generate_rollouts()
+        istb_bias_list.append(istb_bias)
         shifting_bias_list.append(shifting_bias)
-        hovering_bias_list.append(hovering_bias)
+        initial_shooting_bias_list.append(initial_shooting_bias)
+        average_shooting_bias_list.append(average_shooting_bias)
         success_list.append(success)
-    shifting_bias_array = np.array(shifting_bias_list)
-    hovering_bias_array = np.array(hovering_bias_list)
-    actual_bias_array = np.array(actual_bias_list)
-    success_array = np.array(success_list)
-    bias_stat["average_abs_bias"] = np.mean(np.abs(actual_bias_array))
-    bias_stat["average_bias"] = np.mean(actual_bias_array)
-    if np.sum(success_array) != 0:
-        bias_stat["average_abs_success_bias"] = np.sum(np.abs(actual_bias_array) * success_array)/np.sum(success_array)
-        bias_stat["average_success_bias"] = np.sum(actual_bias_array * success_array)/np.sum(success_array)
-        bias_stat["average_abs_shifting_bias"] = np.sum(np.abs(shifting_bias_array) * success_array)/np.sum(success_array)
-        bias_stat["average_shifting_bias"] = np.sum(shifting_bias_array * success_array)/np.sum(success_array)
-        bias_stat["average_abs_hovering_bias"] = np.sum(np.abs(hovering_bias_array) * success_array)/np.sum(success_array)
-        bias_stat["average_hovering_bias"] =  np.sum(hovering_bias_array * success_array)/np.sum(success_array)
-    else:
-        bias_stat["average_abs_success_bias"] = -1
-        bias_stat["average_success_bias"] = -1
-        bias_stat["average_shifting_bias"] = -1
-        bias_stat["average_abs_shifting_bias"] = -1
-        bias_stat["average_abs_hovering_bias"] = -1
-        bias_stat["average_hovering_bias"] = -1
+        average_iqr_list.append(average_iqr)
+        per_step_iqr_array_list.append(per_step_iqr_array)
 
+    istb_bias_array = np.concatenate(istb_bias_list)
+    shifting_bias_array = np.concatenate(shifting_bias_list)
+    initial_shooting_bias_array = np.concatenate(initial_shooting_bias_list)
+    average_shooting_bias_array = np.concatenate(average_shooting_bias_list)
+    success_array = np.concatenate(success_list)
+    average_iqr_array = np.concatenate(average_iqr_list)
+    all_per_step_iqr_array = np.concatenate(per_step_iqr_array_list)
 
-    if np.min(success_array) == 0:
-        bias_stat["average_abs_failure_bias"] = np.sum(np.abs(actual_bias_array) * (1 - success_array))/np.sum(1 - success_array)
-        bias_stat["average_failure_bias"] = np.sum(actual_bias_array * (1 - success_array))/np.sum(1 - success_array)
-    else:
-        bias_stat["average_abs_failure_bias"] = -1
-        bias_stat["average_failure_bias"] = -1
+    bias_stat["mean_abs_bias"] = np.mean(np.abs(istb_bias_array))
+    bias_stat["average_bias"] = np.mean(istb_bias_array)
+    bias_stat["average_iqr"] = np.mean(average_iqr_array)
+
+    bias_data = {"initial": istb_bias_array, "shifting": shifting_bias_array, "initial_shooting": initial_shooting_bias_array,
+                "average_shooting": average_shooting_bias_array, "average_iqr": average_iqr_array}
+
+    bias_stat = log_successful_trajectory_bias(bias_stat, bias_data, success_array)
+    bias_stat = log_failed_trajecotry_bias(bias_stat, bias_data, success_array)
+
     for key, val in bias_stat.items():
             logger.record_tabular(key, mpi_average(val))
-
+    return all_per_step_iqr_array, success_array
 
 def train(*, policy, rollout_worker, evaluator,
           n_epochs, n_test_rollouts, n_cycles, n_batches, policy_save_interval,
@@ -74,6 +97,8 @@ def train(*, policy, rollout_worker, evaluator,
         latest_policy_path = os.path.join(save_path, 'policy_latest.pkl')
         best_policy_path = os.path.join(save_path, 'policy_best.pkl')
         periodic_policy_path = os.path.join(save_path, 'policy_{}.pkl')
+
+    info_path = os.path.join(logger.get_dir(), "info.npz")
 
     # random_init for o/g/rnd stat and model training
     if random_init and not play_no_training and not offline_train:
@@ -89,7 +114,7 @@ def train(*, policy, rollout_worker, evaluator,
     
     n_rounds = n_eps_per_cycle//rollout_worker.rollout_batch_size
     remain = n_eps_per_cycle%rollout_worker.rollout_batch_size
-
+    info_to_dump = {}
     for epoch in range(n_epochs):
         time_start = time.time()
         rollout_worker.clear_history()
@@ -97,6 +122,8 @@ def train(*, policy, rollout_worker, evaluator,
             print("WARNING: the actual episode for each batch is", n_rounds * rollout_worker.rollout_batch_size)
         for i in range(n_cycles):
             policy.dynamic_batch = False
+            if remain != 0:
+                print("WARNING: the actual episode for each batch is", n_rounds * rollout_worker.rollout_batch_size)
             if not offline_train:
                 for _ in range(n_rounds):
                     episode = rollout_worker.generate_rollouts()
@@ -108,16 +135,28 @@ def train(*, policy, rollout_worker, evaluator,
         # test
         evaluate(evaluator, logger, n_test_rollouts)
 
-        # record logs
-        time_end = time.time()
-        logger.record_tabular('epoch', epoch)
-        logger.record_tabular('epoch time(min)', (time_end - time_start)/60)
+        all_per_step_iqr_array, success_array = evaluate(evaluator, logger, n_test_rollouts)
+        info_to_dump["epoch_{}".format(epoch)] = {"iqr": all_per_step_iqr_array, "success": success_array}
+        np.savez(info_path, **info_to_dump)
+
+        for key, val in policy.get_loss_stat():
+            logger.record_tabular(key, mpi_average(val))
+        for key, val in policy.get_debug_info():
+            logger.record_tabular(key, mpi_average(val))
+        for key, val in policy.get_grad_norm():
+            logger.record_tabular(key, mpi_average(val))
+
         for key, val in evaluator.logs('test'):
             logger.record_tabular(key, mpi_average(val))
         for key, val in rollout_worker.logs('train'):
             logger.record_tabular(key, mpi_average(val))
         for key, val in policy.logs():
             logger.record_tabular(key, mpi_average(val))
+
+        # record logs
+        time_end = time.time()
+        logger.record_tabular('epoch', epoch)
+        logger.record_tabular('epoch time(min)', (time_end - time_start)/60)
 
         if rank == 0:
             logger.dump_tabular()

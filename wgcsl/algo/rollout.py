@@ -6,6 +6,13 @@ from wgcsl.algo.util import convert_episode_to_batch_major, store_args, discount
 
 GAMMA_ARRAY=None
 
+def calcualte_discounted_returns(rewards, final_Q, gamma):
+    returns = [final_Q]
+    def accumulate(acc, reward):
+        return [reward + gamma * acc[0]] + acc
+    returns = reduce(accumulate, reversed(rewards.T), returns)[:-1]
+    return np.array(returns).T
+
 class RolloutWorker:
 
     @store_args
@@ -67,6 +74,7 @@ class RolloutWorker:
         dones = []
         info_values = [np.empty((self.T - 1, self.rollout_batch_size, self.dims['info_' + key]), np.float32) for key in self.info_keys]
         Qs = []
+        IQRs = []
         for t in range(self.T):
             if random_ac:
                 u = self.policy._random_action(self.rollout_batch_size)
@@ -79,7 +87,8 @@ class RolloutWorker:
                     use_target_net=self.use_target_net)
 
                 if self.compute_Q:
-                    u, Q = policy_output
+                    u, Q, IQR_Q = policy_output
+                    IQRs.append(IQR_Q[:, 0] - IQR_Q[:, 1])
                     Qs.append(Q)
                 else:
                     u = policy_output
@@ -159,6 +168,7 @@ class RolloutWorker:
         # change shape to (rollout, steps, dim)
 
         if self.exploit:
+            IQRA = np.stack(IQRs, axis=1)
             QA = np.concatenate(Qs, axis=1)
             SA = np.array(successful).T
             RA = np.array(rewards).T
@@ -167,9 +177,17 @@ class RolloutWorker:
                 episode_length = RA.shape[1]
                 GAMMA_ARRAY = np.power(self.gamma, np.arange(episode_length))
             TR = np.sum(RA*GAMMA_ARRAY, axis=1) + self.gamma * GAMMA_ARRAY[-1] * RA[:, -1] / (1 - self.gamma)
-            dicounted_final_Q = self.gamma * GAMMA_ARRAY[-1] * QA[:, -1]
-            return convert_episode_to_batch_major(episode), QA[:, 0] - TR, QA[:, -1], \
-                QA[:, 0] - TR - dicounted_final_Q, SA
+            discounted_final_Q = self.gamma * GAMMA_ARRAY[-1] * QA[:, -1]
+            discounted_returns_plus_shifting_bias = calcualte_discounted_returns(RA, QA[:, -1], self.gamma)
+
+            istb_bias = QA[:, 0] - TR
+            shifting_bias = QA[:, -1] - RA[:, -1] / (1 - self.gamma)
+            initial_shooting_bias = QA[:, 0] - TR - discounted_final_Q
+            # the average one is incorrect.
+            average_shooting_bias = np.mean(QA[:, :-1] - discounted_returns_plus_shifting_bias, axis=1)
+            average_iqr = np.mean(IQRA, axis=1)
+            return convert_episode_to_batch_major(episode), istb_bias, shifting_bias, initial_shooting_bias, \
+                average_shooting_bias, average_iqr, IQRA, SA
 
         return convert_episode_to_batch_major(episode)  
 
