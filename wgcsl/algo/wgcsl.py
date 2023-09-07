@@ -49,7 +49,7 @@ class WGCSL(object):
                  Q_lr, pi_lr, norm_eps, norm_clip, max_u, action_l2, clip_obs, scope, T,
                  rollout_batch_size, subtract_goals, relative_goals, clip_pos_returns, clip_return,
                  sample_transitions, random_sampler, gamma,  supervised_sampler, use_supervised, su_method,
-                reuse=False, offline_train=False, use_huber=False, delta=1.0, **kwargs):
+                reuse=False, offline_train=False, use_huber=False, delta=1.0, grad_clip_value=-1, **kwargs):
         """Implementation of policy with value funcion that is used in combination with WGCSL
         """
         if self.clip_return is None:

@@ -87,7 +87,11 @@ DEFAULT_PARAMS = {
     'baw_max': 80,
 
     # if do not use her
-    'no_relabel':False    # used for no relabel
+    'no_relabel':False,    # used for no relabel
+    
+    'use_huber': False,
+    'delta': 1.0,
+    'grad_clip_value': -1
 }
 
 
@@ -183,7 +187,7 @@ def prepare_params(kwargs):
         del kwargs['lr']
     for name in ['buffer_size', 'hidden', 'layers','network_class','polyak','batch_size', 
                  'Q_lr', 'pi_lr', 'norm_eps', 'norm_clip', 'max_u','action_l2', 'clip_obs', 
-                 'scope', 'relative_goals', 'use_supervised']:
+                 'scope', 'relative_goals', 'use_supervised', 'use_huber', 'delta', 'grad_clip_value']:
         wgcsl_params[name] = kwargs[name]
         kwargs['_' + name] = kwargs[name]
         del kwargs[name]

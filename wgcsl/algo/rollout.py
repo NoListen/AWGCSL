@@ -1,6 +1,7 @@
 from collections import deque
 
 import numpy as np
+from functools import reduce
 
 from wgcsl.algo.util import convert_episode_to_batch_major, store_args, discounted_return
 
@@ -154,15 +155,6 @@ class RolloutWorker:
         self.distances.append(np.linalg.norm(achieved_goals[-1] - goals[-1]))
 
         if self.compute_Q:
-            o[...] = o_new
-            ag[...] = ag_new
-            _, final_Q = self.policy.get_actions(
-                o, ag, self.g,
-                compute_Q=self.compute_Q,
-                noise_eps=self.noise_eps if not self.exploit else 0.,
-                random_eps=self.random_eps if not self.exploit else 0.,
-                use_target_net=self.use_target_net)
-            Qs.append(final_Q)
             self.Q_history.append(np.mean(Qs))
         self.n_episodes += self.rollout_batch_size
         # change shape to (rollout, steps, dim)
