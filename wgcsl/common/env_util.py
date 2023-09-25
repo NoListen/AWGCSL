@@ -104,7 +104,7 @@ def make_env(env_id, env_type, mpi_rank=0, subrank=0, seed=None, reward_scale=1.
         from wgcsl.envs.multi_world_wrapper import SawyerGoalWrapper
         env = SawyerGoalWrapper(env)
         if not hasattr(env, '_max_episode_steps'):
-            env = gym.wrappers.TimeLimit(env, max_episode_steps=100)
+            env = gym.wrappers.TimeLimit(env, max_episode_steps=50)
     elif env_id.startswith('Point'):
         from wgcsl.envs.multi_world_wrapper import PointGoalWrapper
         env = gym.wrappers.TimeLimit(env, max_episode_steps=50)
@@ -113,6 +113,8 @@ def make_env(env_id, env_type, mpi_rank=0, subrank=0, seed=None, reward_scale=1.
         from wgcsl.envs.multi_world_wrapper import ReacherGoalWrapper
         env._max_episode_steps = 50
         env = ReacherGoalWrapper(env)
+    elif env_id.startswith('Simple'):
+        pass
     else:
         env = gym.wrappers.TimeLimit(env, max_episode_steps=50)
 

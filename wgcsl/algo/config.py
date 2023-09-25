@@ -145,9 +145,12 @@ def prepare_params(kwargs):
             env.env._max_episode_steps = 50
         elif env_name.startswith('Sawyer'): 
             env = SawyerGoalWrapper(env)
-            env.env._max_episode_steps = 100
+            env.env._max_episode_steps = 50
         elif env_name.startswith('Reacher'):
             env = ReacherGoalWrapper(env)
+        elif env_name.startswith('Simple'):
+            print(env._max_episode_steps)
+        
 
         if (subrank is not None and logger.get_dir() is not None):
             try:
@@ -200,13 +203,20 @@ def log_params(params, logger=logger):
     for key in sorted(params.keys()):
         logger.info('{}: {}'.format(key, params[key]))
 
+def vanilla_reward_fun(ag_2, g, info):
+    return (np.sum(np.square(ag_2 - g)**2, axis=1) < 1e-5).astype(np.float32) - 1
 
 def configure_her(params):
     env = cached_make_env(params['make_env'])
     env.reset()
 
-    def reward_fun(ag_2, g, info):  # vectorized
+    def env_reward_fun(ag_2, g, info):  # vectorized
         return env.compute_reward(achieved_goal=ag_2, desired_goal=g, info=info)
+
+    if hasattr(env, "compute_reward"):
+        reward_fun = env_reward_fun
+    else:
+        reward_fun = vanilla_reward_fun
 
     # Prepare configuration for HER.
     her_params = {
@@ -231,7 +241,7 @@ def simple_goal_subtract(a, b):
     assert a.shape == b.shape
     return a - b
 
-def configure_wgcsl(dims, params, reuse=False, use_mpi=True, clip_return=True, offline_train=False):
+def configure_wgcsl(action_space, dims, params, reuse=False, use_mpi=True, clip_return=True, offline_train=False):
     samplers, reward_fun = configure_her(params)
     # Extract relevant parameters.
     rollout_batch_size = params['rollout_batch_size']
@@ -254,6 +264,7 @@ def configure_wgcsl(dims, params, reuse=False, use_mpi=True, clip_return=True, o
                         'su_method': params['su_method'],
                         'baw_delta': params['baw_delta'],
                         'baw_max': params['baw_max'],
+                        'action_space': action_space,
                         })
     wgcsl_params['info'] = {
         'env_name': params['env_name'],
@@ -267,9 +278,17 @@ def configure_dims(params):
     env = cached_make_env(params['make_env'])
     env.reset()
     obs, _, _, info = env.step(env.action_space.sample())
+
+    if isinstance(env.action_space, gym.spaces.box.Box):
+        u_size =  env.action_space.shape[0]
+    elif isinstance(env.action_space, gym.spaces.discrete.Discrete):
+        u_size = env.action_space.n
+    else:
+        raise ValueError("Action type not supported")
+
     dims = {
         'o': obs['observation'].shape[0],
-        'u': env.action_space.shape[0],
+        'u': u_size,
         'g': obs['desired_goal'].shape[0],
     }
     return dims

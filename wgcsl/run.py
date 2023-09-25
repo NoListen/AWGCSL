@@ -19,6 +19,11 @@ try:
 except ImportError:
     multiworld = None
 
+try:
+    import gym_simple_minigrid
+except:
+    gym_simple_minigrid = None
+
 _game_envs = get_game_envs()
 
 

@@ -1,5 +1,6 @@
 from collections import OrderedDict
 
+import gym
 import numpy as np
 import tensorflow as tf
 from collections import defaultdict
@@ -13,6 +14,14 @@ from wgcsl.algo.replay_buffer import ReplayBuffer
 from wgcsl.common.mpi_adam import MpiAdam
 from wgcsl.common import tf_util
 
+def env_action_type(action_space):
+    if isinstance(action_space, gym.spaces.box.Box):
+        action_type = "continuous"
+    elif isinstance(action_space, gym.spaces.discrete.Discrete):
+        action_type = "discrete"
+    else:
+        raise ValueError("the action space is not supported atm")
+    return action_type
 
 def dims_to_shapes(input_dims):
     return {key: tuple([val]) if val > 0 else tuple() for key, val in input_dims.items()}
@@ -45,7 +54,7 @@ def expectile_huber_loss(target, v_to_goal, tau, delta=1.0):
 
 class WGCSL(object):
     @store_args
-    def __init__(self, input_dims, buffer_size, hidden, layers, network_class, polyak, batch_size,
+    def __init__(self, action_space, input_dims, buffer_size, hidden, layers, network_class, polyak, batch_size,
                  Q_lr, pi_lr, norm_eps, norm_clip, max_u, action_l2, clip_obs, scope, T,
                  rollout_batch_size, subtract_goals, relative_goals, clip_pos_returns, clip_return,
                  sample_transitions, random_sampler, gamma,  supervised_sampler, use_supervised, su_method,
@@ -60,6 +69,7 @@ class WGCSL(object):
         self.dimo = self.input_dims['o']
         self.dimg = self.input_dims['g']
         self.dimu = self.input_dims['u']
+        self.action_type = env_action_type(self.action_space)
 
         # Prepare staging area for feeding data to the model. 
         stage_shapes = OrderedDict()
@@ -112,7 +122,13 @@ class WGCSL(object):
         self.debug_stats = defaultdict(list)
 
     def _random_action(self, n):
-        return np.random.uniform(low=-self.max_u, high=self.max_u, size=(n, self.dimu))
+        if self.action_type == "continuous":
+            return np.random.uniform(low=-self.max_u, high=self.max_u, size=(n, self.dimu))
+        elif self.action_type == "discrete":
+            # already reduced to 1 dim
+            return np.random.choice(self.action_space.n, n).reshape(-1, 1)
+        else:
+            raise ValueError("The action type is not supported")
 
     def _preprocess_og(self, o, ag, g, ):
         if self.relative_goals:
@@ -160,10 +176,19 @@ class WGCSL(object):
         ret = self.sess.run(vals, feed_dict=feed)
         # action postprocessing
         u = ret[0]
-        noise = noise_eps * self.max_u * np.random.randn(*u.shape)  # gaussian noise
-        u += noise
-        u = np.clip(u, -self.max_u, self.max_u)
-        u += np.random.binomial(1, random_eps, u.shape[0]).reshape(-1, 1) * (self._random_action(u.shape[0]) - u)  # eps-greedy
+        if self.action_type == "continuous":
+            noise = noise_eps * self.max_u * np.random.randn(*u.shape)  # gaussian noise
+            u += noise
+            u = np.clip(u, -self.max_u, self.max_u)
+            u += np.random.binomial(1, random_eps, u.shape[0]).reshape(-1, 1) * (self._random_action(u.shape[0]) - u)  # eps-greedy
+            if u.shape[0] == 1:
+                u = u[0]
+            u = u.copy()
+        elif self.action_type == "discrete":
+            # no noise eps
+            # random_eps is quite high
+            u = np.argmax(u, axis=1).reshape(-1, 1)
+            u += np.random.binomial(1, random_eps, u.shape[0]).reshape(-1, 1) * (self._random_action(u.shape[0]) - u)
         if u.shape[0] == 1:
             u = u[0]
         u = u.copy()
@@ -226,10 +251,20 @@ class WGCSL(object):
         self.debug_stats = defaultdict(list)
         return logs
 
+    def inflat_actions(self, actions):
+        if self.action_type == "discrete":
+            shape = actions.shape
+            num_actions = self.action_space.n
+            actions = np.eye(num_actions)[actions.reshape(-1)]
+            actions = actions.reshape(*shape[:-1], actions.shape[-1])
+        
+        return actions
+
     def store_episode(self, episode_batch, update_stats=True): #init=False
         """
         episode_batch: array of batch_size x (T or T+1) x dim_key 'o' is of size T+1, others are of size T
         """
+        episode_batch['u'] = self.inflat_actions(episode_batch['u'])
         self.buffer.store_episode(episode_batch)
         if update_stats:
             # episode doesn't has key o_2
@@ -469,37 +504,47 @@ class WGCSL(object):
 
         # training policy with supervised learning (GCSL)
         self.gcsl_weight_tf = tf.placeholder(tf.float32, shape=(None,) , name='weights')
-        self.weighted_sl_loss = tf.reduce_mean(tf.square(self.main.u_tf - self.main.pi_tf),axis=1)
+        if self.action_type == "continuous":
+            self.weighted_sl_loss = tf.reduce_mean(tf.square(self.main.u_tf - self.main.pi_tf),axis=1)
+        elif self.action_type == "discrete":
+            self.weighted_sl_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+                logits=self.main.pi_logits_tf, labels=self.main.u_tf)
         self.policy_sl_loss = tf.reduce_mean(self.gcsl_weight_tf * self.weighted_sl_loss)  #  + 0.01 * self.temp_action_loss
+
+        if self.action_type != "discrete":
+            pi_grads_tf = tf.gradients(self.pi_loss_tf, self._vars('main/pi'))
+            self.pi_grad_norm = tf.math.reduce_mean([tf.norm(grad) for grad in pi_grads_tf])
+            if self.grad_clip_value > 0:
+                pi_grads_tf = [tf.clip_by_value(grad, -grad_clip_value, grad_clip_value) for grad in pi_grads_tf]
+            assert len(self._vars('main/pi')) == len(pi_grads_tf)
+            self.pi_grads_vars_tf = zip(pi_grads_tf, self._vars('main/pi'))
+            self.pi_grad_tf = flatten_grads(grads=pi_grads_tf, var_list=self._vars('main/pi'))
+        else:
+            self.pi_grad_norm = self.pi_grads_vars_tf = self.pi_grad_tf = tf.constant(0.)
+
 
         Q_grads_tf = tf.gradients(self.Q_loss_tf, self._vars('main/Q'))
         IQR_grads_tf = tf.gradients(self.IQR_loss_tf, self._vars('main/IQR'))
-        pi_grads_tf = tf.gradients(self.pi_loss_tf, self._vars('main/pi'))
         pi_sl_grads_tf = tf.gradients(self.policy_sl_loss, self._vars('main/pi'))
 
         self.Q_grad_norm = tf.math.reduce_mean([tf.norm(grad) for grad in Q_grads_tf])
         self.IQR_grad_norm = tf.math.reduce_mean([tf.norm(grad) for grad in IQR_grads_tf])
-        self.pi_grad_norm = tf.math.reduce_mean([tf.norm(grad) for grad in pi_grads_tf])
         self.pi_sl_grad_norm = tf.math.reduce_mean([tf.norm(grad) for grad in pi_sl_grads_tf])
 
         if self.grad_clip_value > 0:
             grad_clip_value = self.grad_clip_value
             Q_grads_tf = [tf.clip_by_value(grad, -grad_clip_value, grad_clip_value) for grad in Q_grads_tf]
             IQR_grads_tf = [tf.clip_by_value(grad, -grad_clip_value, grad_clip_value) for grad in IQR_grads_tf]
-            pi_grads_tf = [tf.clip_by_value(grad, -grad_clip_value, grad_clip_value) for grad in pi_grads_tf]
             pi_sl_grads_tf = [tf.clip_by_value(grad, -grad_clip_value, grad_clip_value) for grad in pi_sl_grads_tf]
 
         assert len(self._vars('main/Q')) == len(Q_grads_tf)
         assert len(self._vars('main/IQR')) == len(IQR_grads_tf)
-        assert len(self._vars('main/pi')) == len(pi_grads_tf)
         self.Q_grads_vars_tf = zip(Q_grads_tf, self._vars('main/Q'))
         self.IQR_grads_vars_tf = zip(IQR_grads_tf, self._vars('main/IQR'))
-        self.pi_grads_vars_tf = zip(pi_grads_tf, self._vars('main/pi'))
         self.pi_sl_grads_vars_tf = zip(pi_sl_grads_tf, self._vars('main/pi'))
 
         self.Q_grad_tf = flatten_grads(grads=Q_grads_tf, var_list=self._vars('main/Q'))
         self.IQR_grad_tf = flatten_grads(grads=IQR_grads_tf, var_list=self._vars('main/IQR'))
-        self.pi_grad_tf = flatten_grads(grads=pi_grads_tf, var_list=self._vars('main/pi'))
         self.pi_sl_grad_tf = flatten_grads(grads=pi_sl_grads_tf, var_list=self._vars('main/pi'))
 
         # optimizers

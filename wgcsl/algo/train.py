@@ -3,6 +3,7 @@ import os
 import numpy as np
 from mpi4py import MPI
 import time
+from copy import copy
 
 from wgcsl.common import logger
 from wgcsl.common import tf_util
@@ -237,7 +238,7 @@ def learn(*, env, num_epoch,
         config.log_params(params, logger=logger)
 
     dims = config.configure_dims(params)
-    policy = config.configure_wgcsl(dims=dims, params=params, clip_return=clip_return, offline_train=offline_train)
+    policy = config.configure_wgcsl(action_space=copy(env.action_space), dims=dims, params=params, clip_return=clip_return, offline_train=offline_train)
     if load_path is not None:
         if load_model:
             tf_util.load_variables(os.path.join(load_path, 'policy_last.pkl'))
